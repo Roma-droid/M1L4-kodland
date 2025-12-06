@@ -2,6 +2,9 @@
 # Полный модуль логики покемон-бота
 
 import random
+import json
+import os
+from datetime import datetime
 
 TYPE_EMOJI = {
     "fire": "🔥",
@@ -14,13 +17,34 @@ TYPE_EMOJI = {
     "psychic": "🔮",
     "normal": "⭐",
     "ghost": "👻",
+    "fighting": "🥊",
+    "flying": "🕊️",
+    "poison": "☠️",
+    "ground": "⛰️",
+    "bug": "🐛",
+    "dark": "🌑",
+    "steel": "⚙️",
+    "fairy": "🧚"
 }
 
+POKEMON_DB = {
+    "Pikachu": {"type": "electric", "base_hp": 35, "base_attack": 55, "base_defense": 40, "base_speed": 90},
+    "Charmander": {"type": "fire", "base_hp": 39, "base_attack": 52, "base_defense": 43, "base_speed": 65},
+    "Squirtle": {"type": "water", "base_hp": 44, "base_attack": 48, "base_defense": 65, "base_speed": 43},
+    "Bulbasaur": {"type": "grass", "base_hp": 45, "base_attack": 49, "base_defense": 49, "base_speed": 45},
+    "Dratini": {"type": "dragon", "base_hp": 41, "base_attack": 64, "base_defense": 45, "base_speed": 50},
+    "Eevee": {"type": "normal", "base_hp": 55, "base_attack": 55, "base_defense": 50, "base_speed": 55},
+    "Gastly": {"type": "ghost", "base_hp": 30, "base_attack": 35, "base_defense": 30, "base_speed": 80},
+    "Geodude": {"type": "rock", "base_hp": 40, "base_attack": 80, "base_defense": 100, "base_speed": 20},
+    "Abra": {"type": "psychic", "base_hp": 25, "base_attack": 20, "base_defense": 15, "base_speed": 90},
+    "Magikarp": {"type": "water", "base_hp": 20, "base_attack": 10, "base_defense": 55, "base_speed": 80}
+}
 
 class Pokemon:
-    def __init__(self, name, type, hp, attack, defense, speed, image_path):
+    def __init__(self, name, type, hp, attack, defense, speed, image_path=None):
         self.name = name
         self.type = type
+        self.max_hp = hp
         self.hp = hp
         self.attack = attack
         self.defense = defense
@@ -30,7 +54,7 @@ class Pokemon:
         # Уровни
         self.level = 1
         self.xp = 0
-        self.xp_to_next = 20
+        self.xp_to_next = 100
 
         # IV — генетические параметры
         self.iv_hp = random.randint(0, 31)
@@ -44,6 +68,14 @@ class Pokemon:
         self.ev_defense = 0
         self.ev_speed = 0
 
+        # Эволюция
+        self.can_evolve = random.random() < 0.3  # 30% шанс что покемон может эволюционировать
+        self.evolution_stage = 1
+        
+        # Боевая статистика
+        self.battles_won = 0
+        self.battles_lost = 0
+
     def show_img(self):
         return self.image_path
 
@@ -53,15 +85,21 @@ class Pokemon:
     def add_xp(self, amount):
         self.xp += amount
         while self.xp >= self.xp_to_next:
-            self.level += 1
-            self.xp -= self.xp_to_next
-            self.xp_to_next = int(self.xp_to_next * 1.5)
+            self.level_up()
 
-            # рост характеристик
-            self.hp += 2
-            self.attack += 1
-            self.defense += 1
-            self.speed += 1
+    def level_up(self):
+        self.level += 1
+        self.xp -= self.xp_to_next
+        self.xp_to_next = int(self.xp_to_next * 1.5)
+
+        # рост характеристик с учетом IV и EV
+        self.max_hp += 2 + (self.iv_hp // 10) + (self.ev_hp // 50)
+        self.attack += 1 + (self.iv_attack // 15) + (self.ev_attack // 50)
+        self.defense += 1 + (self.iv_defense // 15) + (self.ev_defense // 50)
+        self.speed += 1 + (self.iv_speed // 15) + (self.ev_speed // 50)
+        
+        # Восстановление HP при повышении уровня
+        self.hp = self.max_hp
 
     def apply_ev_gain(self):
         self.ev_hp += random.randint(1, 3)
@@ -69,284 +107,272 @@ class Pokemon:
         self.ev_defense += random.randint(1, 3)
         self.ev_speed += random.randint(1, 3)
 
+    def heal(self):
+        self.hp = self.max_hp
+
+    def evolve(self):
+        if self.can_evolve and self.evolution_stage == 1:
+            self.evolution_stage = 2
+            self.name = f"Mega {self.name}"
+            self.max_hp += 20
+            self.hp = self.max_hp
+            self.attack += 15
+            self.defense += 10
+            self.speed += 5
+            return True
+        return False
+
+    def info_detailed(self):
+        return (
+            f"*{self.name}* {self.type_emoji()} (Ур. {self.level})\n"
+            f"XP: `{self.xp}/{self.xp_to_next}` | Победы: `{self.battles_won}`\n"
+            f"HP: `{self.hp}/{self.max_hp}` (IV: {self.iv_hp}, EV: {self.ev_hp})\n"
+            f"Атака: `{self.attack}` (IV: {self.iv_attack}, EV: {self.ev_attack})\n"
+            f"Защита: `{self.defense}` (IV: {self.iv_defense}, EV: {self.ev_defense})\n"
+            f"Скорость: `{self.speed}` (IV: {self.iv_speed}, EV: {self.ev_speed})\n"
+            f"Эволюция: {'🟢 Доступна' if self.can_evolve and self.evolution_stage == 1 else '🔴 Недоступна'}"
+        )
+
 
 class Trainer:
     trainers = {}
-
+    
     def __init__(self, name):
         self.name = name
         self.pokemons = []
         self.items = {
-            "potion": 2,
-            "super_potion": 0,
+            "potion": 3,
+            "super_potion": 1,
             "trap": 0,
-            "boost": 0
+            "boost": 1,
+            "rare_candy": 0,
+            "evolution_stone": 0
         }
+        self.coins = 100
+        self.battles_won = 0
+        self.battles_lost = 0
+        self.last_daily = None
         Trainer.trainers[name] = self
 
     def info(self):
-        text = f"Тренер: {self.name}\nПокемоны: {len(self.pokemons)}\n"
-        return text
+        total_power = sum((p.hp + p.attack + p.defense + p.speed) for p in self.pokemons)
+        return (
+            f"*Тренер: {self.name}*\n"
+            f"Покемоны: `{len(self.pokemons)}/6`\n"
+            f"Монеты: `{self.coins}` 💰\n"
+            f"Бои: `{self.battles_won}🏆 / {self.battles_lost}💔`\n"
+            f"Общая сила: `{total_power}`\n"
+            f"Средний уровень: `{sum(p.level for p in self.pokemons) / max(1, len(self.pokemons)):.1f}`"
+        )
 
     def add_pokemon(self):
-        # генерация тестового покемона
-        name = random.choice(["Pikachu", "Charmander", "Squirtle", "Bulbasaur", "Dratini"])
-        type = random.choice(["electric", "fire", "water", "grass", "dragon"])
-        hp = random.randint(40, 80)
-        attack = random.randint(10, 25)
-        defense = random.randint(5, 20)
-        speed = random.randint(10, 30)
-        image_path = "images/" + name.lower() + ".png"
+        if len(self.pokemons) >= 6:
+            return "❌ У тебя уже максимальное количество покемонов (6)! Используй /release чтобы отпустить кого-то."
 
-        # шанс на редкого покемона
-        if random.random() < 0.01:
-            name = "🌟 Shiny " + name
-            hp += 20
-            attack += 10
-            defense += 10
-            image_path = "images/shiny_" + name.lower().replace(" ", "_") + ".png"
+        name = random.choice(list(POKEMON_DB.keys()))
+        data = POKEMON_DB[name]
+        
+        # Базовые статы с небольшим разбросом
+        hp = data["base_hp"] + random.randint(-5, 10)
+        attack = data["base_attack"] + random.randint(-3, 7)
+        defense = data["base_defense"] + random.randint(-3, 7)
+        speed = data["base_speed"] + random.randint(-5, 10)
+        
+        type_ = data["type"]
+        image_path = f"images/{name.lower()}.png"
 
-        p = Pokemon(name, type, hp, attack, defense, speed, image_path)
+        # Шанс на редкого покемона (5%)
+        is_shiny = random.random() < 0.05
+        if is_shiny:
+            name = f"🌟 Shiny {name}"
+            hp += 30
+            attack += 20
+            defense += 15
+            speed += 15
+            image_path = f"images/shiny_{name.lower().replace(' ', '_')}.png"
+
+        p = Pokemon(name, type_, hp, attack, defense, speed, image_path)
         self.pokemons.append(p)
-        return f"Ты поймал {p.name}!"
+        
+        return f"🎉 Ты поймал *{p.name}*! (HP: {p.hp}, Атака: {p.attack})"
+
+    def use_item(self, item_name, pokemon_name):
+        item_name = item_name.lower()
+        
+        if item_name not in self.items or self.items[item_name] <= 0:
+            return False, "❌ У тебя нет такого предмета."
+
+        pokemon = None
+        for p in self.pokemons:
+            if p.name.lower() == pokemon_name.lower():
+                pokemon = p
+                break
+
+        if not pokemon:
+            return False, "❌ Покемон не найден."
+
+        result = ""
+        if item_name == "potion":
+            heal_amount = 20
+            pokemon.hp = min(pokemon.hp + heal_amount, pokemon.max_hp)
+            result = f"💊 Использовано зелье на {pokemon.name}. HP: {pokemon.hp}/{pokemon.max_hp}"
+        elif item_name == "super_potion":
+            heal_amount = 50
+            pokemon.hp = min(pokemon.hp + heal_amount, pokemon.max_hp)
+            result = f"💊 Использовано супер-зелье на {pokemon.name}. HP: {pokemon.hp}/{pokemon.max_hp}"
+        elif item_name == "boost":
+            pokemon.attack += 5
+            result = f"💪 Использован буст на {pokemon.name}. Атака теперь: {pokemon.attack}"
+        elif item_name == "rare_candy":
+            pokemon.add_xp(50)
+            result = f"🍬 Использована редкая конфета на {pokemon.name}. XP +50!"
+        elif item_name == "evolution_stone":
+            if pokemon.evolve():
+                result = f"✨ {pokemon.name} эволюционировал!"
+            else:
+                result = f"❌ Этот покемон не может эволюционировать."
+                return False, result
+
+        self.items[item_name] -= 1
+        return True, result
+
+    def heal_all(self):
+        for p in self.pokemons:
+            p.heal()
+        return "💚 Все покемоны вылечены!"
+
+    def release_pokemon(self, pokemon_name):
+        for i, p in enumerate(self.pokemons):
+            if p.name.lower() == pokemon_name.lower():
+                released = self.pokemons.pop(i)
+                self.coins += released.level * 5  # Награда за отпускание
+                return True, f"🕊️ Покемон {released.name} отпущен на волю. Получено {released.level * 5} монет!"
+        return False, "❌ Покемон не найден."
+
+    def get_items_list(self):
+        if not any(count > 0 for count in self.items.values()):
+            return "📦 Инвентарь пуст. Используй /daily или /shop"
+        
+        text = "📦 *Твой инвентарь:*\n"
+        for item, count in self.items.items():
+            if count > 0:
+                text += f"• {item}: `{count}`\n"
+        text += f"\n💰 Монеты: `{self.coins}`"
+        return text
+
+    def claim_daily(self):
+        today = datetime.now().date()
+        if self.last_daily and self.last_daily == today:
+            return False, "❌ Ты уже получал ежедневную награду сегодня. Приходи завтра!"
+        
+        self.last_daily = today
+        reward = random.choice(["potion", "super_potion", "boost", "coins"])
+        
+        if reward == "coins":
+            amount = random.randint(50, 150)
+            self.coins += amount
+            return True, f"🎁 Ежедневная награда: {amount} монет!"
+        else:
+            self.items[reward] += 1
+            return True, f"🎁 Ежедневная награда: 1x {reward}!"
 
 
 class Battle:
     def __init__(self, t1, t2):
         self.t1 = t1
         self.t2 = t2
+        self.log = []
+
+    def calculate_damage(self, attacker, defender):
+        # Базовая формула урона
+        damage = max(1, attacker.attack - defender.defense // 2)
+        
+        # Критический удар (10% шанс)
+        if random.random() < 0.1:
+            damage *= 2
+            self.log.append(f"✨ Критический удар!")
+        
+        # Множитель типа (упрощенный)
+        type_multiplier = 1.0
+        if attacker.type == "water" and defender.type == "fire":
+            type_multiplier = 2.0
+        elif attacker.type == "fire" and defender.type == "grass":
+            type_multiplier = 2.0
+        elif attacker.type == "grass" and defender.type == "water":
+            type_multiplier = 2.0
+            
+        damage = int(damage * type_multiplier)
+        return max(1, damage)
 
     def start(self):
         p1 = self.t1.pokemons[0]
         p2 = self.t2.pokemons[0]
+        
+        self.log.append(f"⚔️ *Бой начинается!*")
+        self.log.append(f"{p1.name} (HP: {p1.hp}) vs {p2.name} (HP: {p2.hp})")
 
-        # простой бой по скорости
-        if p1.speed > p2.speed:
-            winner = p1
-            loser = p2
-        else:
+        turn = 1
+        while p1.hp > 0 and p2.hp > 0 and turn <= 20:
+            # Определяем очередность по скорости
+            if p1.speed >= p2.speed:
+                first, second = p1, p2
+                first_trainer, second_trainer = self.t1, self.t2
+            else:
+                first, second = p2, p1
+                first_trainer, second_trainer = self.t2, self.t1
+
+            # Атака первого
+            damage = self.calculate_damage(first, second)
+            second.hp -= damage
+            self.log.append(f"Ход {turn}: {first.name} атакует {second.name} (урон: {damage})")
+
+            if second.hp <= 0:
+                winner = first
+                loser = second
+                winner_trainer = first_trainer
+                loser_trainer = second_trainer
+                break
+
+            # Атака второго
+            damage = self.calculate_damage(second, first)
+            first.hp -= damage
+            self.log.append(f"       {second.name} атакует {first.name} (урон: {damage})")
+
+            if first.hp <= 0:
+                winner = second
+                loser = first
+                winner_trainer = second_trainer
+                loser_trainer = first_trainer
+                break
+
+            turn += 1
+
+        # Определяем победителя
+        if p1.hp <= 0:
             winner = p2
             loser = p1
+            winner_trainer = self.t2
+            loser_trainer = self.t1
+        else:
+            winner = p1
+            loser = p2
+            winner_trainer = self.t1
+            loser_trainer = self.t2
 
-        winner.add_xp(10)
+        # Награды
+        xp_gain = 25 + loser.level * 5
+        winner.add_xp(xp_gain)
         winner.apply_ev_gain()
+        winner.battles_won += 1
+        loser.battles_lost += 1
+        
+        winner_trainer.battles_won += 1
+        loser_trainer.battles_lost += 1
+        winner_trainer.coins += 50
+        loser_trainer.coins += 20
 
-        return f"🏆 Победил {winner.name}!"
+        self.log.append(f"\n🏆 *Победитель: {winner.name}!*")
+        self.log.append(f"🎯 {winner.name} получает {xp_gain} XP")
+        self.log.append(f"💰 {winner_trainer.name} получает 50 монет, {loser_trainer.name} получает 20 монет")
 
-
-# ========================= main.py =========================
-# Телеграм-бот со всеми возможностями
-
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from config import token
-from logic import Trainer, Pokemon, Battle
-
-bot = telebot.TeleBot(token, parse_mode="Markdown")
-
-battle_selection = {}
-
-
-def get_username(user):
-    return user.username.lower() if user.username else f"{user.first_name}_{user.id}"
-
-
-def ensure_trainer(username):
-    return Trainer.trainers.get(username) or Trainer(username)
-
-
-@bot.message_handler(commands=['start', 'help'])
-def start(message):
-    bot.reply_to(message, "Команды: /create /catch /stats /top /rename /use /fight /battle")
-
-
-@bot.message_handler(commands=['create'])
-def create(message):
-    uname = get_username(message.from_user)
-    if uname in Trainer.trainers:
-        bot.reply_to(message, "Профиль уже создан.")
-        return
-    Trainer(uname)
-    bot.reply_to(message, "Профиль тренера создан!")
-
-
-@bot.message_handler(commands=['catch'])
-def catch(message):
-    uname = get_username(message.from_user)
-    t = ensure_trainer(uname)
-
-    text = t.add_pokemon()
-    p = t.pokemons[-1]
-
-    if p.show_img():
-        bot.send_photo(message.chat.id, p.show_img(), caption=text)
-    else:
-        bot.reply_to(message, text)
-
-
-@bot.message_handler(commands=['stats'])
-def stats(message):
-    uname = get_username(message.from_user)
-    if uname not in Trainer.trainers:
-        bot.reply_to(message, "Сначала создай тренера.")
-        return
-
-    t = Trainer.trainers[uname]
-
-    args = message.text.split()
-    if len(args) > 1:
-        mode = args[1].lower()
-        if mode == "hp": t.pokemons.sort(key=lambda p: p.hp, reverse=True)
-        if mode == "attack": t.pokemons.sort(key=lambda p: p.attack, reverse=True)
-        if mode == "speed": t.pokemons.sort(key=lambda p: p.speed, reverse=True)
-
-    for p in t.pokemons:
-        filled = int((p.xp / p.xp_to_next) * 10)
-        bar = "█" * filled + "░" * (10 - filled)
-
-        text = (
-            f"*{p.name}* {p.type_emoji()}\n"
-            f"Уровень: *{p.level}*\n"
-            f"XP: `{p.xp}/{p.xp_to_next}`\n"
-            f"{bar}\n\n"
-            f"HP: `{p.hp}`  (IV {p.iv_hp}, EV {p.ev_hp})\n"
-            f"Атака: `{p.attack}`  (IV {p.iv_attack}, EV {p.ev_attack})\n"
-            f"Защита: `{p.defense}`  (IV {p.iv_defense}, EV {p.ev_defense})\n"
-            f"Скорость: `{p.speed}`  (IV {p.iv_speed}, EV {p.ev_speed})\n"
-        )
-
-        bot.send_photo(message.chat.id, p.show_img(), caption=text)
-
-
-@bot.message_handler(commands=['rename'])
-def rename(message):
-    uname = get_username(message.from_user)
-    t = Trainer.trainers.get(uname)
-    if not t:
-        bot.reply_to(message, "Создай тренера.")
-        return
-
-    parts = message.text.split(maxsplit=2)
-    if len(parts) < 3:
-        bot.reply_to(message, "Использование: /rename старое новое")
-        return
-
-    old, new = parts[1], parts[2]
-    for p in t.pokemons:
-        if p.name.lower() == old.lower():
-            p.name = new
-            bot.reply_to(message, f"Имя изменено: {old} → {new}")
-            return
-
-    bot.reply_to(message, "Покемон не найден.")
-
-
-@bot.message_handler(commands=['top'])
-def top(message):
-    ranking = []
-    for name, t in Trainer.trainers.items():
-        total_lvl = sum(p.level for p in t.pokemons)
-        total_pow = sum(p.hp + p.attack + p.defense + p.speed for p in t.pokemons)
-        ranking.append((t.name, total_lvl, total_pow))
-
-    ranking.sort(key=lambda x: (x[1], x[2]), reverse=True)
-
-    text = "🏆 Топ тренеров:\n\n"
-    for i, (name, lvl, pw) in enumerate(ranking, 1):
-        text += f"{i}. *{name}* — уровни `{lvl}`, сила `{pw}`\n"
-
-    bot.send_message(message.chat.id, text)
-
-
-@bot.message_handler(commands=['use'])
-def use(message):
-    uname = get_username(message.from_user)
-    t = Trainer.trainers.get(uname)
-
-    parts = message.text.split(maxsplit=2)
-    if len(parts) < 3:
-        bot.reply_to(message, "Формат: /use предмет покемон")
-        return
-
-    item, target = parts[1], parts[2].lower()
-
-    if item not in t.items or t.items[item] <= 0:
-        bot.reply_to(message, "Нет такого предмета.")
-        return
-
-    p = next((x for x in t.pokemons if x.name.lower() == target), None)
-    if not p:
-        bot.reply_to(message, "Покемон не найден.")
-        return
-
-    if item == "potion": p.hp += 20
-    if item == "super_potion": p.hp += 50
-    if item == "boost": p.attack += 5
-
-    t.items[item] -= 1
-    bot.reply_to(message, f"Использовано {item} на {p.name}")
-
-
-@bot.message_handler(commands=['fight'])
-def fight(message):
-    uname = get_username(message.from_user)
-    t = Trainer.trainers.get(uname)
-    if not t or not t.pokemons:
-        bot.reply_to(message, "Нет покемонов.")
-        return
-
-    kb = InlineKeyboardMarkup()
-    for p in t.pokemons:
-        kb.add(InlineKeyboardButton(text=p.name, callback_data=f"pick_{p.name}"))
-
-    battle_selection[message.from_user.id] = {"step": 1}
-    bot.send_message(message.chat.id, "Выбери своего покемона:", reply_markup=kb)
-
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("pick_"))
-def pick(call):
-    user_id = call.from_user.id
-    pname = call.data.split("_", 1)[1]
-
-    if user_id not in battle_selection:
-        bot.answer_callback_query(call.id, "Начни /fight")
-        return
-
-    uname = get_username(call.from_user)
-    t = Trainer.trainers[uname]
-
-    p = next((x for x in t.pokemons if x.name == pname), None)
-    if not p:
-        bot.answer_callback_query(call.id, "Покемон не найден")
-        return
-
-    if battle_selection[user_id]["step"] == 1:
-        battle_selection[user_id]["first"] = p
-        battle_selection[user_id]["step"] = 2
-        bot.edit_message_text("Теперь выбери покемона соперника (он тоже должен нажать /fight).", call.message.chat.id, call.message.message_id)
-    else:
-        first = battle_selection[user_id]["first"]
-        second = p
-        del battle_selection[user_id]
-
-        result = f"Бой: {first.name} vs {second.name}\nПобедил: {first.name if first.speed >= second.speed else second.name}"
-        bot.send_message(call.message.chat.id, result)
-
-
-@bot.message_handler(commands=['battle'])
-def battle_cmd(message):
-    uname = get_username(message.from_user)
-    t1 = ensure_trainer(uname)
-
-    if message.reply_to_message:
-        opponent = message.reply_to_message.from_user
-        uname2 = get_username(opponent)
-        t2 = ensure_trainer(uname2)
-
-        b = Battle(t1, t2)
-        bot.reply_to(message, b.start())
-    else:
-        bot.reply_to(message, "Используй /battle в ответ на сообщение оппонента.")
-
-
-bot.infinity_polling()
+        return "\n".join(self.log)
