@@ -109,6 +109,7 @@ class Pokemon:
 
     def heal(self):
         self.hp = self.max_hp
+        self.ev_attack = max(0, self.ev_attack - 5)
 
     def evolve(self):
         if self.can_evolve and self.evolution_stage == 1:
